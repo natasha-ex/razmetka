@@ -115,6 +115,40 @@ classify_text("Товар был поставлен 20 октября.")
 │   → {:fact, %{confidence: :classifier, score: 0.72}}
 ```
 
+## Compound conditions
+
+Use `{:all, [...]}`, `{:any, [...]}`, `{:not, ...}` to combine matchers,
+and `{:fn, :name}` to call custom functions:
+
+```elixir
+defmodule MyApp.LegalClassifier do
+  use Yargy.Grammar
+  use Razmetka
+
+  defmatch(:title_base, any_token(lemma("претензия")))
+  defmatch(:pretrial, any_token(lemma("досудебный")))
+  defmatch(:short, max_words(5))
+  defmatch(:demand_verb, any_token(all([lemma(~w[требовать просить]), gram("VERB")])))
+  defmatch(:norm_framing, any_token(lemma(~w[соответствие согласно])))
+
+  # Custom function receives (tokens, text)
+  def has_law_ref?(_, text), do: String.contains?(text, "ст.")
+
+  defclassify(
+    priority: [
+      # AND + OR: title must have pretrial marker or be short
+      {:procedural_title, when: {:all, [:title_base, {:any, [:pretrial, :short]}]}},
+      # Function + matcher
+      {:norm, when: {:all, [{:fn, :has_law_ref?}, :norm_framing]}},
+      {:demand, when: :demand_verb},
+      # NOT: everything without demand verb
+      {:not_demand, when: {:not, :demand_verb}}
+    ],
+    default: :unknown
+  )
+end
+```
+
 ## Without classifier
 
 ```elixir

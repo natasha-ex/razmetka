@@ -73,6 +73,31 @@ defmodule RazmetkaTest do
     )
   end
 
+  defmodule CompoundConditions do
+    use Yargy.Grammar
+    use Razmetka
+
+    defmatch(:title_base, any_token(lemma("претензия")))
+    defmatch(:pretrial, any_token(lemma("досудебный")))
+    defmatch(:short, max_words(5))
+    defmatch(:demand_verb, any_token(all([lemma(~w[требовать просить]), gram("VERB")])))
+    defmatch(:norm_framing, any_token(lemma(~w[соответствие согласно])))
+
+    def has_law_ref?(_, text) do
+      String.contains?(text, "ст.")
+    end
+
+    defclassify(
+      priority: [
+        {:procedural_title, when: {:all, [:title_base, {:any, [:pretrial, :short]}]}},
+        {:norm, when: {:all, [{:fn, :has_law_ref?}, :norm_framing]}},
+        {:demand, when: :demand_verb},
+        {:not_demand, when: {:not, :demand_verb}}
+      ],
+      default: :unknown
+    )
+  end
+
   describe "classify_text/1" do
     test "demand verb matches grammar" do
       {type, meta} = LegalClassifier.classify_text("Истец требует возмещения убытков")
@@ -145,6 +170,51 @@ defmodule RazmetkaTest do
     test "works with morph-tagged tokens" do
       tokens = Yargy.Pipeline.morph_tokenize("Истец требует возмещения")
       {type, _} = LegalClassifier.classify(tokens, "Истец требует возмещения")
+      assert type == :demand
+    end
+  end
+
+  describe "compound conditions" do
+    test "all + any: pretrial + pretenziya matches procedural_title" do
+      {type, meta} = CompoundConditions.classify_text("Досудебная претензия")
+      assert type == :procedural_title
+      assert meta.confidence == :grammar
+    end
+
+    test "all + any: short pretenziya matches procedural_title" do
+      {type, meta} = CompoundConditions.classify_text("ПРЕТЕНЗИЯ")
+      assert type == :procedural_title
+      assert meta.confidence == :grammar
+    end
+
+    test "title_base alone without pretrial or short does not match" do
+      {type, _} =
+        CompoundConditions.classify_text(
+          "Направляю претензию о ненадлежащем исполнении обязательств по договору поставки"
+        )
+
+      refute type == :procedural_title
+    end
+
+    test "fn condition: norm with law ref" do
+      {type, meta} = CompoundConditions.classify_text("В соответствии со ст. 309 ГК РФ")
+      assert type == :norm
+      assert meta.confidence == :grammar
+    end
+
+    test "fn condition: norm framing without law ref skips" do
+      {type, _} = CompoundConditions.classify_text("В соответствии с договором")
+      refute type == :norm
+    end
+
+    test "not condition: not_demand matches non-demand" do
+      {type, meta} = CompoundConditions.classify_text("Товар был доставлен")
+      assert type == :not_demand
+      assert meta.confidence == :grammar
+    end
+
+    test "not condition: demand verb does NOT match not_demand (demand wins first)" do
+      {type, _} = CompoundConditions.classify_text("Истец требует возмещения")
       assert type == :demand
     end
   end

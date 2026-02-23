@@ -71,7 +71,13 @@ defmodule Razmetka do
 
   ## Options
 
-  - `:priority` — list of `{type, when: matcher_name}` tuples, checked in order
+  - `:priority` — list of `{type, when: condition}` tuples, checked in order.
+
+    Conditions can be:
+    - A matcher name (atom): `when: :demand` — calls `demand?(tokens)`
+    - A list with boolean combinators: `when: all([:title_base, any([:pretrial, :short])])`
+    - A function name (atom): `when: {:fn, :my_check}` — calls `my_check(tokens, text)`
+
   - `:classifier` — module implementing `Razmetka.Classifier` (optional)
   - `:default` — type when nothing matches and no classifier (default: `:unknown`)
   - `:threshold` — minimum classifier confidence (default: `0.40`)
@@ -93,12 +99,12 @@ defmodule Razmetka do
 
       branches =
         Enum.map(priority, fn {type, opts} ->
-          matcher = Keyword.fetch!(opts, :when)
-          matcher_fn = :"#{matcher}?"
+          condition = Keyword.fetch!(opts, :when)
+          cond_ast = compile_condition_ast(condition)
 
           {:->, [],
            [
-             [quote(do: unquote(matcher_fn)(tokens))],
+             [cond_ast],
              quote(do: {unquote(type), %{confidence: :grammar}})
            ]}
         end)
@@ -147,6 +153,38 @@ defmodule Razmetka do
     else
       quote do
       end
+    end
+  end
+
+  defp compile_condition_ast(condition) do
+    case condition do
+      {:all, conditions} ->
+        conditions
+        |> Enum.map(&compile_condition_ast/1)
+        |> Enum.reduce(fn right, left ->
+          quote(do: unquote(left) and unquote(right))
+        end)
+
+      {:any, conditions} ->
+        inner =
+          conditions
+          |> Enum.map(&compile_condition_ast/1)
+          |> Enum.reduce(fn right, left ->
+            quote(do: unquote(left) or unquote(right))
+          end)
+
+        quote(do: unquote(inner))
+
+      {:not, condition} ->
+        inner = compile_condition_ast(condition)
+        quote(do: not unquote(inner))
+
+      {:fn, func_name} when is_atom(func_name) ->
+        quote(do: unquote(func_name)(tokens, text))
+
+      name when is_atom(name) ->
+        matcher_fn = :"#{name}?"
+        quote(do: unquote(matcher_fn)(tokens))
     end
   end
 end

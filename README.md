@@ -27,27 +27,19 @@ defmodule MyApp.SentenceClassifier do
   use Razmetka
 
   # Bag-of-features matchers (from yargy)
-  defmatch :demand, any_token(all([
-    lemma(~w[требовать просить взыскать]),
-    gram("VERB")
-  ]))
-
-  defmatch :norm_framing, any_token(lemma(~w[соответствие согласно основание]))
-
-  defmatch :evidence, all_of([
+  defmatch(:demand, any_token(all([lemma(~w[требовать просить взыскать]), gram("VERB")])))
+  defmatch(:norm_framing, any_token(lemma(~w[соответствие согласно основание])))
+  defmatch(:evidence, all_of([
     any_token(lemma(~w[подтверждаться подтвердить])),
     any_token(lemma(~w[акт квитанция чек выписка]))
-  ])
+  ]))
 
-  # Priority dispatch + ML fallback
-  defclassify priority: [
-    {:demand,   when: :demand},
-    {:norm,     when: :norm_framing},
-    {:evidence, when: :evidence},
-  ],
-  classifier: MyApp.FridaClassifier,
-  default: :fact,
-  threshold: 0.40
+  # Priority dispatch with standard Elixir boolean expressions
+  defclassify classifier: MyApp.FridaClassifier, default: :fact do
+    :demand   -> demand?()
+    :norm     -> norm_framing?()
+    :evidence -> evidence?()
+  end
 end
 ```
 
@@ -117,8 +109,8 @@ classify_text("Товар был поставлен 20 октября.")
 
 ## Compound conditions
 
-Use `{:all, [...]}`, `{:any, [...]}`, `{:not, ...}` to combine matchers,
-and `{:fn, :name}` to call custom functions:
+Use standard Elixir `and`, `or`, `not`, and parentheses.
+Two variables are in scope: `tokens` and `text`.
 
 ```elixir
 defmodule MyApp.LegalClassifier do
@@ -131,21 +123,14 @@ defmodule MyApp.LegalClassifier do
   defmatch(:demand_verb, any_token(all([lemma(~w[требовать просить]), gram("VERB")])))
   defmatch(:norm_framing, any_token(lemma(~w[соответствие согласно])))
 
-  # Custom function receives (tokens, text)
   def has_law_ref?(_, text), do: String.contains?(text, "ст.")
 
-  defclassify(
-    priority: [
-      # AND + OR: title must have pretrial marker or be short
-      {:procedural_title, when: {:all, [:title_base, {:any, [:pretrial, :short]}]}},
-      # Function + matcher
-      {:norm, when: {:all, [{:fn, :has_law_ref?}, :norm_framing]}},
-      {:demand, when: :demand_verb},
-      # NOT: everything without demand verb
-      {:not_demand, when: {:not, :demand_verb}}
-    ],
-    default: :unknown
-  )
+  defclassify default: :unknown do
+    :procedural_title -> title_base?() and (pretrial?() or short?())
+    :norm             -> has_law_ref?(tokens, text) and norm_framing?()
+    :demand           -> demand_verb?()
+    :not_demand       -> not demand_verb?()
+  end
 end
 ```
 
@@ -156,12 +141,11 @@ defmodule MyApp.SimpleClassifier do
   use Yargy.Grammar
   use Razmetka
 
-  defmatch :greeting, any_token(lemma("привет"))
+  defmatch(:greeting, any_token(lemma("привет")))
 
-  defclassify priority: [
-    {:greeting, when: :greeting},
-  ],
-  default: :unknown
+  defclassify default: :unknown do
+    :greeting -> greeting?()
+  end
 end
 
 MyApp.SimpleClassifier.classify_text("Привет мир")

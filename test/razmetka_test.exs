@@ -46,17 +46,12 @@ defmodule RazmetkaTest do
       ])
     )
 
-    defclassify(
-      priority: [
-        {:demand, when: :demand},
-        {:norm, when: :norm_framing},
-        {:evidence, when: :evidence},
-        {:threat, when: :threat}
-      ],
-      classifier: RazmetkaTest.StubClassifier,
-      default: :fact,
-      threshold: 0.40
-    )
+    defclassify classifier: RazmetkaTest.StubClassifier, default: :fact, threshold: 0.40 do
+      :demand -> demand?()
+      :norm -> norm_framing?()
+      :evidence -> evidence?()
+      :threat -> threat?()
+    end
   end
 
   defmodule NoClassifierModule do
@@ -65,12 +60,9 @@ defmodule RazmetkaTest do
 
     defmatch(:greeting, any_token(lemma("привет")))
 
-    defclassify(
-      priority: [
-        {:greeting, when: :greeting}
-      ],
-      default: :unknown
-    )
+    defclassify default: :unknown do
+      :greeting -> greeting?()
+    end
   end
 
   defmodule CompoundConditions do
@@ -87,15 +79,12 @@ defmodule RazmetkaTest do
       String.contains?(text, "ст.")
     end
 
-    defclassify(
-      priority: [
-        {:procedural_title, when: {:all, [:title_base, {:any, [:pretrial, :short]}]}},
-        {:norm, when: {:all, [{:fn, :has_law_ref?}, :norm_framing]}},
-        {:demand, when: :demand_verb},
-        {:not_demand, when: {:not, :demand_verb}}
-      ],
-      default: :unknown
-    )
+    defclassify default: :unknown do
+      :procedural_title -> title_base?() and (pretrial?() or short?())
+      :norm -> has_law_ref?(tokens, text) and norm_framing?()
+      :demand -> demand_verb?()
+      :not_demand -> not demand_verb?()
+    end
   end
 
   describe "classify_text/1" do
@@ -196,13 +185,13 @@ defmodule RazmetkaTest do
       refute type == :procedural_title
     end
 
-    test "fn condition: norm with law ref" do
+    test "custom function: norm with law ref" do
       {type, meta} = CompoundConditions.classify_text("В соответствии со ст. 309 ГК РФ")
       assert type == :norm
       assert meta.confidence == :grammar
     end
 
-    test "fn condition: norm framing without law ref skips" do
+    test "custom function: norm framing without law ref skips" do
       {type, _} = CompoundConditions.classify_text("В соответствии с договором")
       refute type == :norm
     end

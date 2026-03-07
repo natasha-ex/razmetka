@@ -33,7 +33,9 @@ defmodule Razmetka.MixProject do
       {:nx, "~> 0.9", optional: true},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:ex_dna, "~> 1.0", only: [:dev, :test], runtime: false},
+      {:ex_slop, "~> 0.1", only: [:dev, :test], runtime: false}
     ]
   end
 
@@ -47,7 +49,7 @@ defmodule Razmetka.MixProject do
 
   defp aliases do
     [
-      lint: ["format --check-formatted", "credo --strict", "dialyzer"]
+      ci: ["compile --warnings-as-errors", "cmd MIX_ENV=test mix test", "credo --strict --min-priority high", "dialyzer", "ex_dna"]
     ]
   end
 
